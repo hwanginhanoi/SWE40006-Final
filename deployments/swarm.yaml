@@ -1,0 +1,18 @@
+version: "3.8"
+
+services:
+  otel-lgtm:
+    image: grafana/otel-lgtm
+    ports:
+      - "3000:3000"
+      - "4317:4317"
+      - "4318:4318"
+    restart: unless-stopped
+    tty: true
+    networks:
+      - final
+
+networks:
+  final:
+    external: true
+    driver: overlay
