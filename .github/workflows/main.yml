@@ -126,7 +126,7 @@ jobs:
               final:
                 external: true
                 driver: overlay
-EOL
+            EOL
 
             # Monitoring stack
             cat > ~/monitoring-stack.yaml << 'EOL'
@@ -203,7 +203,7 @@ EOL
               final:
                 external: true
                 driver: overlay
-EOL
+            EOL
 
             # Update Prometheus config
             cat > ~/prometheus.yml << 'EOL'
@@ -218,7 +218,7 @@ EOL
               - job_name: 'node-app'
                 static_configs:
                   - targets: ['web-app:8080']  # Metrics endpoint
-EOL
+            EOL
 
             # Create Tempo configuration
             cat > ~/tempo-config.yaml << 'EOL'
@@ -237,7 +237,7 @@ EOL
                 backend: local
                 local:
                   path: /tmp/tempo
-EOL
+            EOL
 
             # Create Grafana datasource provisioning
             mkdir -p ~/grafana-provisioning/datasources
@@ -264,7 +264,7 @@ EOL
                   httpMethod: GET
                   serviceMap:
                     datasourceUid: prometheus
-EOL
+            EOL
 
             # Deploy or update both stacks
             docker stack deploy -c ~/app-stack.yaml app-stack --with-registry-auth
