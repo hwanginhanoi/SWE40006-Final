@@ -92,12 +92,13 @@ jobs:
           script: |
             # Pull the latest Docker image
             docker pull ${{ secrets.DOCKERHUB_USERNAME }}/swe40006-final:latest
-            
+
             # Create the external network if it doesn't exist
             docker network ls | grep final || docker network create --driver overlay final
-            
-            # Copy the stack file from repository to server
-            cat > ~/swarm.yaml << 'EOL'
+
+            # Main application stack
+            # Update app stack with environment variables for telemetry
+            cat > ~/app-stack.yaml << 'EOL'
             version: "3.8"
             
             services:
@@ -105,6 +106,7 @@ jobs:
                 image: ${{ secrets.DOCKERHUB_USERNAME }}/swe40006-final:latest
                 ports:
                   - "80:3000"
+                  - "8080:8080"  # Expose metrics endpoint
                 restart: unless-stopped
                 deploy:
                   replicas: 1
@@ -115,17 +117,8 @@ jobs:
                     condition: on-failure
                 environment:
                   - NODE_ENV=production
-                networks:
-                  - final
-            
-              otel-lgtm:
-                image: grafana/otel-lgtm
-                ports:
-                  - "8080:3000"                  
-                  - "4317:4317"
-                  - "4318:4318"
-                restart: unless-stopped
-                tty: true
+                  - TEMPO_URL=http://tempo:4318/v1/traces
+                  - LOKI_URL=http://loki:3100
                 networks:
                   - final
             
@@ -133,10 +126,149 @@ jobs:
               final:
                 external: true
                 driver: overlay
-            EOL
+              EOL
+
+            # Monitoring stack
+            cat > ~/monitoring-stack.yaml << 'EOL'
+            version: "3.8"
+
+            services:
+              grafana:
+                image: grafana/grafana:latest
+                ports:
+                  - "3000:3000"
+                volumes:
+                  - grafana-storage:/var/lib/grafana
+                  - ./grafana-provisioning:/etc/grafana/provisioning
+                environment:
+                  - GF_SECURITY_ADMIN_PASSWORD=admin
+                  - GF_USERS_ALLOW_SIGN_UP=false
+                  - GF_INSTALL_PLUGINS=grafana-piechart-panel
+                deploy:
+                  replicas: 1
+                networks:
+                  - final
             
-            # Deploy or update the stack
-            docker stack deploy -c ~/swarm.yaml swe40006-stack --with-registry-auth
+              prometheus:
+                image: prom/prometheus:latest
+                ports:
+                  - "9090:9090"
+                volumes:
+                  - prometheus-data:/prometheus
+                  - ./prometheus.yml:/etc/prometheus/prometheus.yml
+                command:
+                  - '--config.file=/etc/prometheus/prometheus.yml'
+                  - '--storage.tsdb.path=/prometheus'
+                  - '--web.console.libraries=/etc/prometheus/console_libraries'
+                  - '--web.console.templates=/etc/prometheus/consoles'
+                deploy:
+                  replicas: 1
+                networks:
+                  - final
             
+              loki:
+                image: grafana/loki:latest
+                ports:
+                  - "3100:3100"
+                command: -config.file=/etc/loki/local-config.yaml
+                volumes:
+                  - loki-data:/loki
+                deploy:
+                  replicas: 1
+                networks:
+                  - final
+            
+              tempo:
+                image: grafana/tempo:latest
+                ports:
+                  - "3200:3200"
+                  - "4317:4317"  # OTLP gRPC
+                  - "4318:4318"  # OTLP HTTP
+                command: -config.file=/etc/tempo/tempo-config.yaml
+                volumes:
+                  - tempo-data:/tmp/tempo
+                  - ./tempo-config.yaml:/etc/tempo/tempo-config.yaml
+                deploy:
+                  replicas: 1
+                networks:
+                  - final
+            
+            volumes:
+              grafana-storage:
+              prometheus-data:
+              loki-data:
+              tempo-data:
+            
+            networks:
+              final:
+                external: true
+                driver: overlay
+              EOL
+
+            # Update Prometheus config
+            cat > ~/prometheus.yml << 'EOL'
+            global:
+              scrape_interval: 15s
+            
+            scrape_configs:
+              - job_name: 'prometheus'
+                static_configs:
+                  - targets: ['localhost:9090']
+            
+              - job_name: 'node-app'
+                static_configs:
+                  - targets: ['web-app:8080']  # Metrics endpoint
+              EOL
+            
+            # Create Tempo configuration
+            cat > ~/tempo-config.yaml << 'EOL'
+            server:
+              http_listen_port: 3200
+            
+            distributor:
+              receivers:
+                otlp:
+                  protocols:
+                    http:
+                    grpc:
+            
+            storage:
+              trace:
+                backend: local
+                local:
+                  path: /tmp/tempo
+              EOL
+              
+              # Create Grafana datasource provisioning
+              mkdir -p ~/grafana-provisioning/datasources
+              cat > ~/grafana-provisioning/datasources/datasources.yaml << 'EOL'
+            apiVersion: 1
+            
+            datasources:
+              - name: Prometheus
+                type: prometheus
+                access: proxy
+                url: http://prometheus:9090
+                isDefault: true
+            
+              - name: Loki
+                type: loki
+                access: proxy
+                url: http://loki:3100
+            
+              - name: Tempo
+                type: tempo
+                access: proxy
+                url: http://tempo:3200
+                jsonData:
+                  httpMethod: GET
+                  serviceMap:
+                    datasourceUid: prometheus
+              EOL
+
+            # Deploy or update both stacks
+            docker stack deploy -c ~/app-stack.yaml app-stack --with-registry-auth
+            docker stack deploy -c ~/monitoring-stack.yaml monitoring-stack --with-registry-auth
+
             # Clean up unused images
             docker image prune -f
