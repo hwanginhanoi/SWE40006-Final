@@ -100,7 +100,7 @@ jobs:
             # Update app stack with environment variables for telemetry
             cat > ~/app-stack.yaml << 'EOL'
             version: "3.8"
-            
+
             services:
               web-app:
                 image: ${{ secrets.DOCKERHUB_USERNAME }}/swe40006-final:latest
@@ -121,12 +121,12 @@ jobs:
                   - LOKI_URL=http://loki:3100
                 networks:
                   - final
-            
+
             networks:
               final:
                 external: true
                 driver: overlay
-              EOL
+EOL
 
             # Monitoring stack
             cat > ~/monitoring-stack.yaml << 'EOL'
@@ -148,7 +148,7 @@ jobs:
                   replicas: 1
                 networks:
                   - final
-            
+
               prometheus:
                 image: prom/prometheus:latest
                 ports:
@@ -165,7 +165,7 @@ jobs:
                   replicas: 1
                 networks:
                   - final
-            
+
               loki:
                 image: grafana/loki:latest
                 ports:
@@ -177,7 +177,7 @@ jobs:
                   replicas: 1
                 networks:
                   - final
-            
+
               tempo:
                 image: grafana/tempo:latest
                 ports:
@@ -192,70 +192,70 @@ jobs:
                   replicas: 1
                 networks:
                   - final
-            
+
             volumes:
               grafana-storage:
               prometheus-data:
               loki-data:
               tempo-data:
-            
+
             networks:
               final:
                 external: true
                 driver: overlay
-              EOL
+EOL
 
             # Update Prometheus config
             cat > ~/prometheus.yml << 'EOL'
             global:
               scrape_interval: 15s
-            
+
             scrape_configs:
               - job_name: 'prometheus'
                 static_configs:
                   - targets: ['localhost:9090']
-            
+
               - job_name: 'node-app'
                 static_configs:
                   - targets: ['web-app:8080']  # Metrics endpoint
-              EOL
-            
+EOL
+
             # Create Tempo configuration
             cat > ~/tempo-config.yaml << 'EOL'
             server:
               http_listen_port: 3200
-            
+
             distributor:
               receivers:
                 otlp:
                   protocols:
                     http:
                     grpc:
-            
+
             storage:
               trace:
                 backend: local
                 local:
                   path: /tmp/tempo
-              EOL
-              
+EOL
+
             # Create Grafana datasource provisioning
             mkdir -p ~/grafana-provisioning/datasources
             cat > ~/grafana-provisioning/datasources/datasources.yaml << 'EOL'
             apiVersion: 1
-            
+
             datasources:
               - name: Prometheus
                 type: prometheus
                 access: proxy
                 url: http://prometheus:9090
                 isDefault: true
-            
+
               - name: Loki
                 type: loki
                 access: proxy
                 url: http://loki:3100
-            
+
               - name: Tempo
                 type: tempo
                 access: proxy
@@ -264,7 +264,7 @@ jobs:
                   httpMethod: GET
                   serviceMap:
                     datasourceUid: prometheus
-              EOL
+EOL
 
             # Deploy or update both stacks
             docker stack deploy -c ~/app-stack.yaml app-stack --with-registry-auth
