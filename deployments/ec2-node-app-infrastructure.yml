@@ -1,0 +1,101 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation template for EC2 instance running Docker Swarm for Node.js app'
+
+Parameters:
+  InstanceType:
+    Description: EC2 instance type
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+      - t2.micro
+      - t3.micro
+      - t2.small
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: Must be the name of an existing EC2 KeyPair
+
+Resources:
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH, HTTP, Node.js app port and Docker Swarm ports
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          CidrIp: 0.0.0.0/0
+        # Docker Swarm ports
+        - IpProtocol: tcp
+          FromPort: 2377
+          ToPort: 2377
+          CidrIp: 0.0.0.0/0  # Swarm cluster management
+        - IpProtocol: tcp
+          FromPort: 7946
+          ToPort: 7946
+          CidrIp: 0.0.0.0/0  # Node-to-node communication
+        - IpProtocol: udp
+          FromPort: 7946
+          ToPort: 7946
+          CidrIp: 0.0.0.0/0  # Node-to-node communication
+        - IpProtocol: udp
+          FromPort: 4789
+          ToPort: 4789
+          CidrIp: 0.0.0.0/0  # Overlay network traffic
+
+  AppInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      SecurityGroups:
+        - !Ref AppSecurityGroup
+      KeyName: !Ref KeyName
+      ImageId: ami-0c7217cdde317cfec  # Ubuntu 22.04 LTS (replace with appropriate AMI for your region)
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          sudo su
+          
+          apt-get update
+          apt-get install -y apt-transport-https ca-certificates curl software-properties-common
+          
+          # Install Docker
+          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
+          add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+          apt-get update
+          apt-get install -y docker-ce docker-ce-cli containerd.io
+          systemctl start docker
+          systemctl enable docker
+          usermod -aG docker ubuntu
+          
+          # Initialize Docker Swarm
+          docker swarm init --advertise-addr $(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
+          
+          # Create an overlay network for the application
+          docker network create --driver overlay swarm-net
+      Tags:
+        - Key: Name
+          Value: DockerSwarmNodeJsServer
+
+Outputs:
+  InstanceId:
+    Description: ID of the EC2 instance
+    Value: !Ref AppInstance
+  PublicDNS:
+    Description: Public DNS of the EC2 instance
+    Value: !GetAtt AppInstance.PublicDnsName
+  PublicIP:
+    Description: Public IP of the EC2 instance
+    Value: !GetAtt AppInstance.PublicIp

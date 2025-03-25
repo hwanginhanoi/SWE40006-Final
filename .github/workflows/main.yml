@@ -74,3 +74,69 @@ jobs:
           context: .
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/swe40006-final:latest
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Deploy to Docker Swarm
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          script: |
+            # Pull the latest Docker image
+            docker pull ${{ secrets.DOCKERHUB_USERNAME }}/swe40006-final:latest
+            
+            # Create the external network if it doesn't exist
+            docker network ls | grep final || docker network create --driver overlay final
+            
+            # Copy the stack file from repository to server
+            cat > ~/swarm.yaml << 'EOL'
+            version: "3.8"
+            
+            services:
+              web-app:
+                image: ${{ secrets.DOCKERHUB_USERNAME }}/swe40006-final:latest
+                ports:
+                  - "80:3000"
+                restart: unless-stopped
+                deploy:
+                  replicas: 1
+                  update_config:
+                    parallelism: 1
+                    delay: 10s
+                  restart_policy:
+                    condition: on-failure
+                environment:
+                  - NODE_ENV=production
+                networks:
+                  - final
+            
+              otel-lgtm:
+                image: grafana/otel-lgtm
+                ports:
+                  - "3000:3000"
+                  - "4317:4317"
+                  - "4318:4318"
+                restart: unless-stopped
+                tty: true
+                networks:
+                  - final
+            
+            networks:
+              final:
+                external: true
+                driver: overlay
+            EOL
+            
+            # Deploy or update the stack
+            docker stack deploy -c ~/swarm.yaml swe40006-stack --with-registry-auth
+            
+            # Clean up unused images
+            docker image prune -f
