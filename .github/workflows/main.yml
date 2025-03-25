@@ -239,9 +239,9 @@ jobs:
                   path: /tmp/tempo
               EOL
               
-              # Create Grafana datasource provisioning
-              mkdir -p ~/grafana-provisioning/datasources
-              cat > ~/grafana-provisioning/datasources/datasources.yaml << 'EOL'
+            # Create Grafana datasource provisioning
+            mkdir -p ~/grafana-provisioning/datasources
+            cat > ~/grafana-provisioning/datasources/datasources.yaml << 'EOL'
             apiVersion: 1
             
             datasources:

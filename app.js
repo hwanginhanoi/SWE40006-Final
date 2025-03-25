@@ -1,45 +1,45 @@
-// Load instrumentation first
-require('./instrumentation');
-
 const createError = require('http-errors');
 const express = require('express');
 const path = require('path');
 const cookieParser = require('cookie-parser');
 const morgan = require('morgan');
 const winston = require('winston');
+const { trace, context } = require('@opentelemetry/api');
 const LokiTransport = require('winston-loki');
-const promClient = require('prom-client');
+const { promClient, collectDefaultMetrics } = require('prom-client');
 
-// Initialize Prometheus client
-const register = new promClient.Registry();
-promClient.collectDefaultMetrics({ register });
-
-// HTTP request duration metric
-const httpRequestDurationMicroseconds = new promClient.Histogram({
-  name: 'http_request_duration_seconds',
-  help: 'Duration of HTTP requests in seconds',
-  labelNames: ['method', 'route', 'status'],
-  buckets: [0.1, 0.3, 0.5, 0.7, 1, 3, 5, 7, 10]
-});
-register.registerMetric(httpRequestDurationMicroseconds);
-
-// Create winston logger with Loki transport
+// Configure Winston logger
 const logger = winston.createLogger({
-  level: 'info',
-  format: winston.format.json(),
-  defaultMeta: { service: 'node-app' },
+  level: process.env.LOG_LEVEL || 'info',
+  format: winston.format.combine(
+      winston.format.timestamp(),
+      winston.format.json()
+  ),
+  defaultMeta: { service: 'web-app' },
   transports: [
-    new winston.transports.Console({
-      format: winston.format.simple()
-    }),
-    new LokiTransport({
-      host: process.env.LOKI_URL || 'http://loki:3100',
-      labels: { job: 'node-app' },
-      json: true,
-      format: winston.format.json(),
-      onConnectionError: (err) => console.error(err)
-    })
+    new winston.transports.Console()
   ]
+});
+
+// Add Loki transport in production
+if (process.env.NODE_ENV === 'production' && process.env.LOKI_URL) {
+  logger.add(new LokiTransport({
+    host: process.env.LOKI_URL,
+    labels: { app: 'web-app' },
+    json: true,
+    batching: true,
+    interval: 5
+  }));
+  logger.info('Loki transport configured');
+}
+
+// Metrics setup
+collectDefaultMetrics();
+const httpRequestDurationMicroseconds = new promClient.Histogram({
+  name: 'http_request_duration_ms',
+  help: 'Duration of HTTP requests in ms',
+  labelNames: ['method', 'route', 'status_code'],
+  buckets: [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000]
 });
 
 const indexRouter = require('./routes/index');
@@ -51,29 +51,56 @@ const app = express();
 app.set('views', path.join(__dirname, 'views'));
 app.set('view engine', 'pug');
 
-app.use(morgan('combined', { stream: { write: message => logger.info(message.trim()) } }));
+// Add logging middleware
+app.use(morgan('combined', {
+  stream: {
+    write: (message) => logger.http(message.trim())
+  }
+}));
+
+// Add telemetry correlation middleware
+app.use((req, res, next) => {
+  const activeSpan = trace.getSpan(context.active());
+  if (activeSpan) {
+    const traceId = activeSpan.spanContext().traceId;
+    const spanId = activeSpan.spanContext().spanId;
+    req.traceId = traceId;
+    req.spanId = spanId;
+    res.set('X-Trace-ID', traceId);
+  }
+  next();
+});
+
+// Add request timing middleware
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    httpRequestDurationMicroseconds
+        .labels(req.method, req.route?.path || req.path, res.statusCode)
+        .observe(duration);
+
+    logger.info(`${req.method} ${req.originalUrl}`, {
+      method: req.method,
+      url: req.originalUrl,
+      status: res.statusCode,
+      duration,
+      traceId: req.traceId,
+      spanId: req.spanId
+    });
+  });
+  next();
+});
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Add a metrics endpoint for Prometheus
+// Metrics endpoint
 app.get('/metrics', async (req, res) => {
-  res.set('Content-Type', register.contentType);
-  res.end(await register.metrics());
-});
-
-// Add middleware to measure request duration
-app.use((req, res, next) => {
-  const start = Date.now();
-  res.on('finish', () => {
-    const duration = (Date.now() - start) / 1000;
-    httpRequestDurationMicroseconds
-        .labels(req.method, req.route?.path || req.path, res.statusCode)
-        .observe(duration);
-    logger.info(`${req.method} ${req.url} ${res.statusCode} - ${duration}s`);
-  });
-  next();
+  res.set('Content-Type', promClient.register.contentType);
+  res.end(await promClient.register.metrics());
 });
 
 app.use('/', indexRouter);
@@ -81,18 +108,29 @@ app.use('/users', usersRouter);
 
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {
-  logger.warn(`404 Not Found: ${req.path}`);
+  logger.warn('Route not found', {
+    method: req.method,
+    url: req.originalUrl,
+    traceId: req.traceId
+  });
   next(createError(404));
 });
 
 // error handler
 app.use(function(err, req, res, next) {
+  // log error details
+  logger.error('Request error', {
+    error: err.message,
+    stack: err.stack,
+    statusCode: err.status || 500,
+    method: req.method,
+    url: req.originalUrl,
+    traceId: req.traceId
+  });
+
   // set locals, only providing error in development
   res.locals.message = err.message;
   res.locals.error = req.app.get('env') === 'development' ? err : {};
-
-  // Log the error
-  logger.error(`Error ${err.status || 500}: ${err.message}`);
 
   // render the error page
   res.status(err.status || 500);
