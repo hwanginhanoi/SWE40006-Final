@@ -1,6 +1,23 @@
 version: "3.8"
 
 services:
+  web-app:
+    image: hwanginhanoi/swe40006-final:latest
+    ports:
+      - "80:3000"
+    restart: unless-stopped
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 10s
+      restart_policy:
+        condition: on-failure
+    environment:
+      - NODE_ENV=production
+    networks:
+      - final
+
   otel-lgtm:
     image: grafana/otel-lgtm
     ports:
