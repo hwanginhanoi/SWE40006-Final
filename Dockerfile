@@ -37,4 +37,4 @@ EXPOSE 3000
 EXPOSE 8080
 
 # Start the application with instrumentation
-CMD ["node", "-r", "./instrumentation.js", "./bin/www"]
+CMD ["node", "--require", "./otel-config.js", "bin/www"]
