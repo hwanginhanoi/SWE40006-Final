@@ -146,7 +146,7 @@ jobs:
       - name: Run integration tests
         run: npm run test:integration
         env:
-          TEST_API_URL: http://${{ secrets.TEST_EC2_HOST }}:8000
+          TEST_API_URL: http://${{ secrets.TEST_EC2_HOST }}
 
   deploy-to-production:
     needs: integration-tests

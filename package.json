@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "start": "node ./bin/www",
-    "test": "jest",
+    "test": "jest --testMatch='**/tests/app.test.js'",
     "test:integration": "jest --testMatch='**/tests/api.test.js'"
   },
   "dependencies": {

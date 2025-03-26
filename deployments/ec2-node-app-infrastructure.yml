@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'CloudFormation template for EC2 instance running Docker Swarm for Node.js app'
+Description: 'CloudFormation template for two EC2 instances running Docker Swarm - Manager and Worker'
 
 Parameters:
   InstanceType:
@@ -12,14 +12,14 @@ Parameters:
       - t2.small
   KeyName:
     Description: Name of an existing EC2 KeyPair to enable SSH access
-    Type: AWS::EC2::KeyPair::KeyName
+    Type: AWS::EC2::KeyPair::Deployment
     ConstraintDescription: Must be the name of an existing EC2 KeyPair
 
 Resources:
   AppSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Enable SSH, HTTP, Node.js app port and Docker Swarm ports
+      GroupDescription: Enable all required ports for DevOps pipeline
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 22
@@ -37,32 +37,62 @@ Resources:
           FromPort: 3000
           ToPort: 3000
           CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 8000
+          ToPort: 8000
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8081
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 9090
+          ToPort: 9090
+          CidrIp: 0.0.0.0/0
         # Docker Swarm ports
         - IpProtocol: tcp
           FromPort: 2377
           ToPort: 2377
-          CidrIp: 0.0.0.0/0  # Swarm cluster management
+          CidrIp: 0.0.0.0/0
         - IpProtocol: tcp
           FromPort: 7946
           ToPort: 7946
-          CidrIp: 0.0.0.0/0  # Node-to-node communication
+          CidrIp: 0.0.0.0/0
         - IpProtocol: udp
           FromPort: 7946
           ToPort: 7946
-          CidrIp: 0.0.0.0/0  # Node-to-node communication
+          CidrIp: 0.0.0.0/0
         - IpProtocol: udp
           FromPort: 4789
           ToPort: 4789
-          CidrIp: 0.0.0.0/0  # Overlay network traffic
+          CidrIp: 0.0.0.0/0
+        # Monitoring ports
+        - IpProtocol: tcp
+          FromPort: 3100
+          ToPort: 3100
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 3200
+          ToPort: 3200
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 4317
+          ToPort: 4318
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 9100
+          ToPort: 9100
+          CidrIp: 0.0.0.0/0
 
-  AppInstance:
+  # Production Server (Manager Node)
+  ProductionInstance:
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: !Ref InstanceType
       SecurityGroups:
         - !Ref AppSecurityGroup
       KeyName: !Ref KeyName
-      ImageId: ami-0c7217cdde317cfec  # Ubuntu 22.04 LTS (replace with appropriate AMI for your region)
+      ImageId: ami-0c7217cdde317cfec  # Ubuntu 22.04 LTS
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash -xe
@@ -83,19 +113,75 @@ Resources:
           # Initialize Docker Swarm
           docker swarm init --advertise-addr $(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
           
-          # Create an overlay network for the application
-          docker network create --driver overlay swarm-net
+          # Create overlay networks
+          docker network create --driver overlay final
+          
+          # Save join token to a file for reference
+          docker swarm join-token worker | grep docker > /home/ubuntu/worker-join-command.txt
+          chmod 644 /home/ubuntu/worker-join-command.txt
+          
+          # Tag the instance
+          INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+          aws ec2 create-tags --resources $INSTANCE_ID --tags Key=Role,Value=ProductionServer --region $(curl -s http://169.254.169.254/latest/meta-data/placement/region)
       Tags:
         - Key: Name
-          Value: DockerSwarmNodeJsServer
+          Value: ProductionServer
+
+  # Test Server (Worker Node)
+  TestInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      SecurityGroups:
+        - !Ref AppSecurityGroup
+      KeyName: !Ref KeyName
+      ImageId: ami-0c7217cdde317cfec  # Ubuntu 22.04 LTS
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          sudo su
+          
+          apt-get update
+          apt-get install -y apt-transport-https ca-certificates curl software-properties-common
+          
+          # Install Docker
+          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
+          add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+          apt-get update
+          apt-get install -y docker-ce docker-ce-cli containerd.io
+          systemctl start docker
+          systemctl enable docker
+          usermod -aG docker ubuntu
+          
+          # Initialize separate Docker Swarm for test environment
+          docker swarm init --advertise-addr $(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
+          
+          # Create overlay network for test environment
+          docker network create --driver overlay final-test
+          
+          # Tag the instance
+          INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+          aws ec2 create-tags --resources $INSTANCE_ID --tags Key=Role,Value=TestServer --region $(curl -s http://169.254.169.254/latest/meta-data/placement/region)
+      Tags:
+        - Key: Name
+          Value: TestServer
 
 Outputs:
-  InstanceId:
-    Description: ID of the EC2 instance
-    Value: !Ref AppInstance
-  PublicDNS:
-    Description: Public DNS of the EC2 instance
-    Value: !GetAtt AppInstance.PublicDnsName
-  PublicIP:
-    Description: Public IP of the EC2 instance
-    Value: !GetAtt AppInstance.PublicIp
+  ProductionInstanceId:
+    Description: ID of the Production EC2 instance
+    Value: !Ref ProductionInstance
+  ProductionPublicDNS:
+    Description: Public DNS of the Production EC2 instance
+    Value: !GetAtt ProductionInstance.PublicDnsName
+  ProductionPublicIP:
+    Description: Public IP of the Production EC2 instance
+    Value: !GetAtt ProductionInstance.PublicIp
+  TestInstanceId:
+    Description: ID of the Test EC2 instance
+    Value: !Ref TestInstance
+  TestPublicDNS:
+    Description: Public DNS of the Test EC2 instance
+    Value: !GetAtt TestInstance.PublicDnsName
+  TestPublicIP:
+    Description: Public IP of the Test EC2 instance
+    Value: !GetAtt TestInstance.PublicIp
