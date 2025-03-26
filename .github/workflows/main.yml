@@ -231,6 +231,9 @@ jobs:
               - job_name: 'node-app'
                 static_configs:
                   - targets: ['web-app:8080']  # Metrics endpoint
+              - job_name: 'node-exporter'
+                static_configs:
+                  - targets: ['node-exporter:9100']
             EOL
 
             # Create Tempo configuration
@@ -277,9 +280,6 @@ jobs:
                   httpMethod: GET
                   serviceMap:
                     datasourceUid: prometheus
-              - job_name: 'node-exporter'
-                static_configs:
-                  - targets: ['node-exporter:9100']
             EOL
 
             # Deploy or update both stacks
