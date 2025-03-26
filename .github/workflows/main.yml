@@ -230,7 +230,8 @@ jobs:
 
               - job_name: 'node-app'
                 static_configs:
-                  - targets: ['web-app:8080']  # Metrics endpoint
+                  - targets: ['web-app:3000']  # Metrics endpoint
+            
               - job_name: 'node-exporter'
                 static_configs:
                   - targets: ['node-exporter:9100']
