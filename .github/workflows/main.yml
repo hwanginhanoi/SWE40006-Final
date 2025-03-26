@@ -75,8 +75,81 @@ jobs:
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/swe40006-final:latest
 
-  deploy:
+  deploy-to-test:
     needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Deploy to Test Server
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.TEST_EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          script: |
+            # Pull the latest Docker image
+            docker pull ${{ secrets.DOCKERHUB_USERNAME }}/swe40006-final:latest
+
+            # Create the external network if it doesn't exist
+            docker network ls | grep final-test || docker network create --driver overlay final-test
+
+            # Create test stack configuration
+            cat > ~/test-app-stack.yaml << 'EOL'
+            version: "3.8"
+
+            services:
+              web-app:
+                image: ${{ secrets.DOCKERHUB_USERNAME }}/swe40006-final:latest
+                ports:
+                  - "8000:3000"
+                  - "8080:8080"  # Expose metrics endpoint
+                restart: unless-stopped
+                deploy:
+                  replicas: 1
+                  restart_policy:
+                    condition: on-failure
+                environment:
+                  - NODE_ENV=test
+                  - TEMPO_URL=http://tempo:4318/v1/traces
+                  - LOKI_URL=http://loki:3100
+                networks:
+                  - final-test
+
+            networks:
+              final-test:
+                external: true
+                driver: overlay
+            EOL
+
+            # Deploy test stack
+            docker stack deploy -c ~/test-app-stack.yaml test-stack --with-registry-auth
+
+  integration-tests:
+    needs: deploy-to-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run integration tests
+        run: npm run test:integration
+        env:
+          TEST_API_URL: http://${{ secrets.TEST_EC2_HOST }}:8000
+
+  deploy-to-production:
+    needs: integration-tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -192,7 +265,7 @@ jobs:
                   replicas: 1
                 networks:
                   - final
-            
+
               node-exporter:
                 image: prom/node-exporter:latest
                 ports:
@@ -231,7 +304,7 @@ jobs:
               - job_name: 'node-app'
                 static_configs:
                   - targets: ['web-app:3000']  # Metrics endpoint
-            
+
               - job_name: 'node-exporter'
                 static_configs:
                   - targets: ['node-exporter:9100']
