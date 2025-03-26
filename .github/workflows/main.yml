@@ -192,6 +192,7 @@ jobs:
                   replicas: 1
                 networks:
                   - final
+            
               node-exporter:
                 image: prom/node-exporter:latest
                 ports:
@@ -276,9 +277,9 @@ jobs:
                   httpMethod: GET
                   serviceMap:
                     datasourceUid: prometheus
-                - job_name: 'node-exporter'
-                  static_configs:
-                    - targets: ['node-exporter:9100']
+              - job_name: 'node-exporter'
+                static_configs:
+                  - targets: ['node-exporter:9100']
             EOL
 
             # Deploy or update both stacks
