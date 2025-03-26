@@ -192,6 +192,18 @@ jobs:
                   replicas: 1
                 networks:
                   - final
+              node-exporter:
+                image: prom/node-exporter:latest
+                ports:
+                  - "9100:9100"
+                command:
+                  - '--path.rootfs=/host'
+                volumes:
+                  - /:/host:ro,rslave
+                deploy:
+                  replicas: 1
+                networks:
+                  - final
 
             volumes:
               grafana-storage:
@@ -264,6 +276,9 @@ jobs:
                   httpMethod: GET
                   serviceMap:
                     datasourceUid: prometheus
+                - job_name: 'node-exporter'
+                  static_configs:
+                    - targets: ['node-exporter:9100']
             EOL
 
             # Deploy or update both stacks
