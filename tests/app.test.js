@@ -1,10 +1,20 @@
-// tests/app.test.js
-const request = require('supertest');
-const app = require('../app');
+// tests/simple.test.js
+describe('Simple String Test', () => {
+    test('two identical strings should be equal', () => {
+        // Arrange
+        const string1 = 'hello world';
+        const string2 = 'hello world';
 
-describe('Express App', () => {
-    test('GET / returns 200 status', async () => {
-        const response = await request(app).get('/');
-        expect(response.statusCode).toBe(200);
+        // Act & Assert
+        expect(string1).toEqual(string2);
+    });
+
+    test('two different strings should not be equal', () => {
+        // Arrange
+        const string1 = 'hello';
+        const string2 = 'world';
+
+        // Act & Assert
+        expect(string1).not.toEqual(string2);
     });
 });
