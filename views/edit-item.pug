@@ -1,0 +1,19 @@
+extends layout
+
+block content
+    h1= title
+
+    .card
+        .card-header
+            h2 Edit Item
+        .card-body
+            form(action=`/items/${item.id}?_method=PUT` method="POST")
+                .form-group.mb-3
+                    label(for="name") Name
+                    input#name.form-control(type="text" name="name" value=item.name required)
+                .form-group.mb-3
+                    label(for="description") Description
+                    textarea#description.form-control(name="description" rows="3")= item.description
+                .form-group
+                    button.btn.btn-primary(type="submit") Update
+                    a.btn.btn-secondary.ms-2(href="/items") Cancel

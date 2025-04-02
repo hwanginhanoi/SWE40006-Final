@@ -1,11 +1,57 @@
 extends layout
 
 block content
-  h1= title
-  p Welcome to #{title}
-  h1= title
-  p Welcome to #{title}
-  h1= title
-  p Welcome to #{title}
+  .container.py-4
+    h1.mb-4.text-center.text-primary= title
 
+    .row
+      .col-lg-4.mb-4
+        .card.shadow-sm.border-0.h-100
+          .card-header.bg-primary.text-white.py-3
+            h2.h4.mb-0 Add New Item
+          .card-body
+            form(action="/items" method="POST")
+              .form-group.mb-3
+                label.form-label(for="name") Name
+                input#name.form-control.form-control-lg(type="text" name="name" required)
+              .form-group.mb-3
+                label.form-label(for="description") Description
+                textarea#description.form-control(name="description" rows="4")
+              button.btn.btn-primary.w-100.py-2.mt-2(type="submit")
+                i.fa.fa-plus.me-2
+                | Create Item
 
+      .col-lg-8
+        .card.shadow-sm.border-0
+          .card-header.bg-dark.text-white.d-flex.justify-content-between.align-items-center.py-3
+            h2.h4.mb-0 Items List
+            span.badge.bg-primary.fs-6= items && items.length ? `${items.length} Items` : '0 Items'
+          .card-body
+            if items && items.length
+              .table-responsive
+                table.table.table-hover.align-middle
+                  thead.table-light
+                    tr
+                      th.text-nowrap ID
+                      th.text-nowrap Name
+                      th Description
+                      th.text-center Actions
+                  tbody
+                    each item in items
+                      tr
+                        td.text-muted.small= item.id
+                        td.fw-bold= item.name
+                        td.text-truncate(style="max-width: 250px;")= item.description
+                        td.text-center
+                          .btn-group
+                            a.btn.btn-outline-warning.btn-sm(href="/items/" + item.id + "/edit")
+                              i.fa.fa-pencil.me-1
+                              | Edit
+                            form.d-inline(action="/items/" + item.id + "?_method=DELETE" method="POST")
+                              button.btn.btn-outline-danger.btn-sm(type="submit")
+                                i.fa.fa-trash.me-1
+                                | Delete
+            else
+              .text-center.py-5.text-muted
+                i.fa.fa-database.fa-3x.mb-3
+                p.lead No items found. Create one using the form.

@@ -6,7 +6,11 @@ const morgan = require('morgan');
 const winston = require('winston');
 const { trace, context } = require('@opentelemetry/api');
 const promClient = require('prom-client');
+const methodOverride = require('method-override');
+const itemsRouter = require('./routes/items');
 const { v4: uuidv4 } = require('uuid');
+const itemsApiRouter = require('./routes/itemsApi');
+
 
 // Configure Winston logger
 const logger = winston.createLogger({
@@ -153,9 +157,15 @@ app.use((req, res, next) => {
 
 // Regular middleware setup
 app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
+app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
+// Add after express.urlencoded middleware
+app.use(methodOverride('_method'));
+
+// Add with other application routes
+app.use('/items', itemsRouter);
+app.use('/items/api', itemsApiRouter);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
