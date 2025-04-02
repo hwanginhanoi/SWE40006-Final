@@ -127,9 +127,8 @@ jobs:
                   volumes:
                     - postgres-test-data:/var/lib/postgresql/data
                   environment:
-                    - POSTGRES_DB=testdb
-                    - POSTGRES_USER=testuser
-                    - POSTGRES_PASSWORD=testpassword
+                    - POSTGRES_USER=appuser
+                    - POSTGRES_PASSWORD=apppassword
                   ports:
                     - "5432:5432"
                   deploy:
